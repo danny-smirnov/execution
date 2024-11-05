@@ -1,8 +1,10 @@
 use crate::depth::DepthItem;
 use crate::snapshot::SnapshotItem;
 use crate::trade::Trade;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+#[derive(Serialize, Deserialize)]
 pub struct Event {
     local_unique_id: i64,
     venue_timestamp: i64,
@@ -100,5 +102,8 @@ impl Event {
             "quantity": self.quantity
         })
         .to_string()
+    }
+    pub fn encode(&self) -> Vec<u8> {
+        bincode::serialize(self).expect("failed serialize event to bincode")
     }
 }

@@ -3,3 +3,4 @@ members = [
     "binance-api-integration",
     "simulator",
 ]
+resolver = "2"
