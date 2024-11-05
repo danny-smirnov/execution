@@ -1,0 +1,6 @@
+{
+    "snapshot_timer": 60,
+    "snapshot_limit": 5000,
+    "websocket_time_await": 60,
+    "websocket_time_reconnect": 43200
+}
