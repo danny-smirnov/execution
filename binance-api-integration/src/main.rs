@@ -17,17 +17,19 @@ use trade::Trade;
 
 #[tokio::main]
 async fn main() {
-    let s = String::from("BTCUSDT");
-    let timer = 60;
-    let limit = 5000;
-    let time_await = 60;
-    let time_reconnect = 60 * 60 * 12;
-    let (tx, rx) = mpsc::channel(100_000);
+    let main_timer = 60;
+    let snapshot_timer = 60;
+    let snapshot_limit = 5000;
+    let acceptor_timer = 3600;
+    let ws_time_await = 60;
+    let ws_time_reconnect = 60 * 60 * 12;
+    let (tx, rx) = mpsc::unbounded_channel::<String>();
+    let s = "BTCUSDT";
     tokio::spawn(binance::restapi::snapshot(
-        tx.clone(),
-        s.clone(),
-        timer,
-        limit,
+            tx.clone(),
+            s.to_string(),
+            snapshot_timer,
+            snapshot_limit,
     ));
     let url = format!(
         "wss://stream.binance.com:9443/stream?streams={}@trade/{}@depth@100ms",
@@ -37,20 +39,20 @@ async fn main() {
     tokio::spawn(binance::websocket::create(
         tx.clone(),
         url,
-        time_await,
-        time_reconnect,
+        ws_time_await,
+        ws_time_reconnect,
     ));
-    tokio::spawn(acceptor(rx, Duration::from_secs(60 * 60)));
-    sleep(Duration::from_secs(60)).await;
+    tokio::spawn(acceptor(rx, Duration::from_secs(acceptor_timer)));
+    sleep(Duration::from_secs(main_timer)).await;
 }
 
-async fn acceptor(mut rx: mpsc::Receiver<String>, time_alive: Duration) -> std::io::Result<()> {
+async fn acceptor(mut rx: mpsc::UnboundedReceiver<String>, timer: Duration) -> std::io::Result<()> {
     loop {
         let mut file = std::fs::OpenOptions::new()
             .write(true)
             .append(true)
             .create(true)
-            .open(format!("{}.json", Utc::now().format("%d-%m-%Y_%H-%M")))?;
+            .open(format!("{}.bin", Utc::now().format("%d-%m-%Y_%H-%M")))?;
         let start = Instant::now();
         while let Some(msg) = rx.recv().await {
             let timestamp = Utc::now().timestamp_millis();
@@ -58,23 +60,23 @@ async fn acceptor(mut rx: mpsc::Receiver<String>, time_alive: Duration) -> std::
                 let data = &msg[33..msg.len() - 1];
                 let trade = Trade::from(data);
                 let event = Event::from((trade, timestamp));
-                write!(file, "{}", event.to_json())?;
+                file.write_all(&event.encode())?;
             } else if msg.contains("@depth") {
                 let data = &msg[39..msg.len() - 1];
                 let depth = Depth::from(data);
                 for depth_item in depth.iter() {
                     let event = Event::from((depth_item, timestamp));
-                    write!(file, "{}", event.to_json())?;
+                    file.write_all(&event.encode())?;
                 }
             } else {
                 let (symbol, data) = msg.split_once('&').expect("failed split snapshot");
                 let snapshot = Snapshot::from(data);
                 for snapshot_item in snapshot.iter() {
                     let event = Event::from((snapshot_item, symbol, timestamp));
-                    write!(file, "{}", event.to_json())?;
+                    file.write_all(&event.encode())?;
                 }
             }
-            if Instant::now() - start >= time_alive { break; }
+            if Instant::now() - start >= timer { break; }
         }
     }
 }

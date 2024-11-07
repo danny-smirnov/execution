@@ -1,8 +1,20 @@
 pub mod restapi {
+    use serde_json::Value;
     use tokio::{
         sync::mpsc,
         time::{sleep, Duration},
     };
+    pub async fn symbols() -> Vec<Value> {
+        let responce = reqwest::get("https://api.binance.com/api/v3/exchangeInfo")
+            .await
+            .expect("failed get request \"exchangeInfo\"")
+            .text()
+            .await
+            .expect("failed decode to text request \"exchangeInfo\"");
+        let exchange_info: Value =
+            serde_json::from_str(&responce).expect("failed exchange info deserialize");
+        exchange_info["symbols"].as_array().unwrap().to_vec()
+    }
     /// The `snapshot` function periodically fetches order book data for a specified symbol
     /// from Binance's REST API and sends it through a channel for further processing.
     ///
@@ -12,16 +24,21 @@ pub mod restapi {
     /// - `symbol` - `String`: The symbol for the trading pair on Binance (e.g., "BTCUSDT").
     /// - `timer` - `u64`: The time interval (in seconds) between API requests.
     /// - `limit` - `u64`: Specifies the maximum number of entries in the API response (order book depth).
-    pub async fn snapshot(tx: mpsc::Sender<String>, symbol: String, timer: u64, limit: u64) {
+    pub async fn snapshot(tx: mpsc::UnboundedSender<String>, symbol: String, timer: u64, limit: u64) {
         loop {
             let url = format!(
                 "https://api.binance.com/api/v3/depth?symbol={}&limit={}",
                 symbol.to_uppercase(),
                 limit
             );
-            let responce = reqwest::get(url).await.unwrap().text().await.unwrap();
+            let responce = reqwest::get(url)
+                .await
+                .expect("failed get request \"depth\"")
+                .text()
+                .await
+                .expect("failed decode to text request \"depth\"");
             let snapshot = format!("{}&{}", symbol, responce);
-            tx.send(snapshot).await.unwrap();
+            tx.send(snapshot).expect("failed send to channel");
             sleep(Duration::from_secs(timer)).await;
         }
     }
@@ -42,7 +59,7 @@ pub mod websocket {
     /// - `time_await`: `u64` — Delay (in seconds) before reconnecting in case of disconnection.
     /// - `time_reconnect`: `u64` — Duration (in seconds) that the connection should remain active.
     pub async fn create(
-        tx: mpsc::Sender<String>,
+        tx: mpsc::UnboundedSender<String>,
         url: String,
         time_await: u64,
         time_reconnect: u64,
@@ -52,8 +69,7 @@ pub mod websocket {
                 tx.clone(),
                 url.clone(),
                 Duration::from_secs(time_reconnect + time_await),
-            )
-            .await;
+            ).await;
             sleep(Duration::from_secs(time_reconnect)).await;
         }
     }
@@ -64,7 +80,7 @@ pub mod websocket {
     /// - `tx`: `mpsc::Sender<String>` — Channel to forward text messages from the server to other parts of the program.
     /// - `url`: `String` — URL for connecting to the WebSocket.
     /// - `time_alive`: `Duration` — Maximum duration the connection should remain active, after which it closes.
-    async fn open(tx: mpsc::Sender<String>, url: String, time_alive: Duration) {
+    async fn open(tx: mpsc::UnboundedSender<String>, url: String, time_alive: Duration) {
         let (ws_stream, _) = connect_async(url).await.expect("failed connect");
         let (mut ws_tx, mut ws_rx) = ws_stream.split();
         let start = Instant::now();
@@ -78,13 +94,11 @@ pub mod websocket {
                             .expect("failed send pong");
                     }
                     Ok(Message::Text(text)) => {
-                        tx.send(text).await.expect("failed send to channel");
+                        tx.send(text).expect("failed send to channel");
                     }
                     _ => {}
                 }
-                if Instant::now() - start >= time_alive {
-                    break;
-                }
+                if Instant::now() - start >= time_alive { break; }
             }
         });
     }
