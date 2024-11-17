@@ -1,46 +1,36 @@
 pub mod restapi {
     use serde_json::Value;
-    use tokio::{
-        sync::mpsc,
-        time::{sleep, Duration},
-    };
-    pub async fn symbols() -> Vec<Value> {
+    pub async fn exchange_info() -> (u64, u64, Vec<String>) {
         let responce = reqwest::get("https://api.binance.com/api/v3/exchangeInfo")
             .await
             .expect("failed get request \"exchangeInfo\"")
             .text()
             .await
-            .expect("failed decode to text request \"exchangeInfo\"");
+            .expect("failed decode request \"exchangeInfo\"");
         let exchange_info: Value =
             serde_json::from_str(&responce).expect("failed exchange info deserialize");
-        exchange_info["symbols"].as_array().unwrap().to_vec()
-    }
-    /// The `snapshot` function periodically fetches order book data for a specified symbol
-    /// from Binance's REST API and sends it through a channel for further processing.
-    ///
-    /// # Arguments
-    /// - `tx` - `mpsc::Sender<String>`: A channel for sending the fetched data, allowing other parts
-    ///   of the program to process it.
-    /// - `symbol` - `String`: The symbol for the trading pair on Binance (e.g., "BTCUSDT").
-    /// - `timer` - `u64`: The time interval (in seconds) between API requests.
-    /// - `limit` - `u64`: Specifies the maximum number of entries in the API response (order book depth).
-    pub async fn snapshot(tx: mpsc::UnboundedSender<String>, symbol: String, timer: u64, limit: u64) {
-        loop {
-            let url = format!(
-                "https://api.binance.com/api/v3/depth?symbol={}&limit={}",
-                symbol.to_uppercase(),
-                limit
-            );
-            let responce = reqwest::get(url)
-                .await
-                .expect("failed get request \"depth\"")
-                .text()
-                .await
-                .expect("failed decode to text request \"depth\"");
-            let snapshot = format!("{}&{}", symbol, responce);
-            tx.send(snapshot).expect("failed send to channel");
-            sleep(Duration::from_secs(timer)).await;
+        let limit = exchange_info["rateLimits"][0]["limit"].as_u64().unwrap();
+        let symbols = exchange_info["symbols"].as_array().unwrap().to_vec();
+        let mut symbols_names = vec![String::new(); symbols.len()];
+        for i in 0..symbols.len() {
+            symbols_names[i] = symbols[i]["symbol"].as_str().unwrap().to_string();
         }
+        (20, limit, symbols_names)
+    }
+
+    pub async fn snapshot(symbol: String) -> (u64, String) {
+        let url = format!(
+            "https://api.binance.com/api/v3/depth?symbol={}&limit=5000",
+            symbol.to_uppercase(),
+        );
+        let responce = reqwest::get(url)
+            .await
+            .expect("failed get request \"depth\"")
+            .text()
+            .await
+            .expect("failed decode request \"depth\"");
+        let snapshot = format!("{}@snapshot{}", symbol, responce);
+        (250, snapshot)
     }
 }
 
@@ -51,39 +41,24 @@ pub mod websocket {
         time::{sleep, Duration, Instant},
     };
     use tokio_tungstenite::{connect_async, tungstenite::Message};
-    /// Create auto-reconnect websocket connection.
-    ///
-    /// # Parameters
-    /// - `tx`: `mpsc::Sender<String>` — Channel for sending messages received from the server.
-    /// - `url`: `String` — The URL for connecting to the WebSocket.
-    /// - `time_await`: `u64` — Delay (in seconds) before reconnecting in case of disconnection.
-    /// - `time_reconnect`: `u64` — Duration (in seconds) that the connection should remain active.
-    pub async fn create(
-        tx: mpsc::UnboundedSender<String>,
-        url: String,
-        time_await: u64,
-        time_reconnect: u64,
-    ) {
-        loop {
-            open(
-                tx.clone(),
-                url.clone(),
-                Duration::from_secs(time_reconnect + time_await),
-            ).await;
-            sleep(Duration::from_secs(time_reconnect)).await;
-        }
+
+    pub const TIME_AWAIT: Duration = Duration::from_secs(60);
+    pub const TIME_RECONNECT: Duration = Duration::from_secs(43200);
+
+    pub async fn create(sender: mpsc::UnboundedSender<String>, url: String) {
+        tokio::spawn(async move {
+            loop {
+                connect(sender.clone(), url.clone()).await;
+                sleep(TIME_RECONNECT).await;
+            }
+        });
     }
-    /// Open a websocket connection and handles incoming messages from the server, including responding to `ping`
-    /// and receiving text data.
-    ///
-    /// # Parameters
-    /// - `tx`: `mpsc::Sender<String>` — Channel to forward text messages from the server to other parts of the program.
-    /// - `url`: `String` — URL for connecting to the WebSocket.
-    /// - `time_alive`: `Duration` — Maximum duration the connection should remain active, after which it closes.
-    async fn open(tx: mpsc::UnboundedSender<String>, url: String, time_alive: Duration) {
+
+    pub async fn connect(sender: mpsc::UnboundedSender<String>, url: String) {
         let (ws_stream, _) = connect_async(url).await.expect("failed connect");
         let (mut ws_tx, mut ws_rx) = ws_stream.split();
-        let start = Instant::now();
+        let start_instant = Instant::now();
+        let lifetime = TIME_AWAIT + TIME_RECONNECT;
         tokio::spawn(async move {
             while let Some(msg) = ws_rx.next().await {
                 match msg {
@@ -94,11 +69,13 @@ pub mod websocket {
                             .expect("failed send pong");
                     }
                     Ok(Message::Text(text)) => {
-                        tx.send(text).expect("failed send to channel");
+                        sender.send(text.clone()).expect("failed send to channel");
                     }
                     _ => {}
                 }
-                if Instant::now() - start >= time_alive { break; }
+                if Instant::now() - start_instant >= lifetime {
+                    break;
+                }
             }
         });
     }
