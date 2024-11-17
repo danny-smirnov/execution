@@ -66,7 +66,7 @@ impl From<(SnapshotItem, &str, i64)> for Event {
             gate_timestamp: timestamp,
             event_type: "snapshot".to_string(),
             product: symbol.to_string(),
-            id1: Some(snapshot_item.id()),
+            id1: Some(snapshot_item.last_update_id()),
             id2: None,
             ask_not_bid: Some(snapshot_item.ask_not_bid()),
             buy_not_sell: None,

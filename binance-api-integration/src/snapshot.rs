@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize)]
 pub struct Snapshot {
     #[serde(rename = "lastUpdateId")]
-    id: u64,
+    last_update_id: u64,
     bids: Vec<(String, String)>,
     asks: Vec<(String, String)>
 }
@@ -18,7 +18,7 @@ impl From<&str> for Snapshot {
 impl Snapshot {
     pub fn iter(&self) -> SnapshotIter {
         SnapshotIter {
-            id: self.id,
+            last_update_id: self.last_update_id,
             bids: self.bids.iter(),
             asks: self.asks.iter(),
         }
@@ -26,21 +26,21 @@ impl Snapshot {
 }
 
 pub struct SnapshotItem {
-    id: u64,
+    last_update_id: u64,
     price: String,
     quantity: String,
     ask_not_bid: bool,
 }
 
 impl SnapshotItem {
-    pub fn id(&self) -> u64 { self.id }
+    pub fn last_update_id(&self) -> u64 { self.last_update_id }
     pub fn price(&self) -> String { self.price.clone() }
     pub fn quantity(&self) -> String { self.quantity.clone() }
     pub fn ask_not_bid(&self) -> bool { self.ask_not_bid }
 }
 
 pub struct SnapshotIter<'a> {
-    id: u64,
+    last_update_id: u64,
     bids: std::slice::Iter<'a, (String, String)>,
     asks: std::slice::Iter<'a, (String, String)>,
 }
@@ -50,7 +50,7 @@ impl<'a> Iterator for SnapshotIter<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         if let Some((price, quantity)) = self.bids.next() {
             return Some(SnapshotItem {
-                id: self.id,
+                last_update_id: self.last_update_id,
                 price: price.clone(),
                 quantity: quantity.clone(),
                 ask_not_bid: false,
@@ -58,7 +58,7 @@ impl<'a> Iterator for SnapshotIter<'a> {
         }
         if let Some((price, quantity)) = self.asks.next() {
             return Some(SnapshotItem {
-                id: self.id,
+                last_update_id: self.last_update_id,
                 price: price.clone(),
                 quantity: quantity.clone(),
                 ask_not_bid: true,
