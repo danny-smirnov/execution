@@ -2,7 +2,6 @@ use crate::depth::DepthItem;
 use crate::snapshot::SnapshotItem;
 use crate::trade::Trade;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 #[derive(Serialize, Deserialize)]
 pub struct Event {
@@ -87,27 +86,14 @@ impl Event {
         }
         ts.tv_sec * 1_000_000_000 + ts.tv_nsec
     }
-    pub fn to_json(&self) -> String {
-        json!({
-            "local_unique_id": self.local_unique_id,
-            "venue_timestamp": self.venue_timestamp,
-            "gate_timestamp": self.gate_timestamp,
-            "type": self.event_type,
-            "product": self.product,
-            "id1": self.id1,
-            "id2": self.id2,
-            "ask_not_bid": self.ask_not_bid,
-            "buy_not_sell": self.buy_not_sell,
-            "price": self.price,
-            "quantity": self.quantity
-        }).to_string()
+
+    pub fn encode_to_binary_form(&self) -> anyhow::Result<Vec<u8>> {
+        let bs = bincode::serialize(self)?;
+        Ok(bs)
     }
-    pub fn encode(&self) -> Vec<u8> {
-        bincode::serialize(self).expect("failed serialize event to bincode")
-    }
-    pub fn decode(bytes: &[u8]) -> Self {
-        let decode: Self =
-            bincode::deserialize(bytes).expect("failed deserialize event from bytes");
-        decode
+
+    pub fn decode_from_binary_form(bytes: &[u8]) -> anyhow::Result<Self> {
+        let event: Self = bincode::deserialize(bytes)?;
+        Ok(event)
     }
 }
