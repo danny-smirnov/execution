@@ -100,10 +100,14 @@ impl Event {
             "buy_not_sell": self.buy_not_sell,
             "price": self.price,
             "quantity": self.quantity
-        })
-        .to_string()
+        }).to_string()
     }
     pub fn encode(&self) -> Vec<u8> {
         bincode::serialize(self).expect("failed serialize event to bincode")
+    }
+    pub fn decode(bytes: &[u8]) -> Self {
+        let decode: Self =
+            bincode::deserialize(bytes).expect("failed deserialize event from bytes");
+        decode
     }
 }
