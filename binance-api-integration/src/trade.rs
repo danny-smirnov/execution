@@ -7,6 +7,7 @@ pub struct Trade {
     t: u64,
     p: String,
     q: String,
+    m: bool,
 }
 
 impl From<&str> for Trade {
@@ -22,4 +23,5 @@ impl Trade {
     pub fn trade_id(&self) -> u64 { self.t }
     pub fn price(&self) -> String { self.p.clone() }
     pub fn quantity(&self) -> String { self.q.clone() }
+    pub fn market_maker(&self) -> bool { self.m }
 }

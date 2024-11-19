@@ -1,19 +1,18 @@
-use futures_util::{SinkExt, StreamExt};
+use crate::RawEvent;
 use tokio::{
     sync::mpsc,
     time::{sleep, Duration, Instant},
 };
+use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-
-use crate::RawEvent;
 
 pub const TIME_AWAIT: Duration = Duration::from_secs(60);
 pub const TIME_RECONNECT: Duration = Duration::from_secs(43200);
 
-pub async fn create(sender: mpsc::UnboundedSender<RawEvent>, url: String) {
+pub async fn create(events_tx: mpsc::UnboundedSender<RawEvent>, url: String) {
     tokio::spawn(async move {
         loop {
-            connect(sender.clone(), url.clone())
+            connect(events_tx.clone(), url.clone())
                 .await
                 .expect("failed to establish websocket connection");
             sleep(TIME_RECONNECT).await;
@@ -36,25 +35,22 @@ pub async fn connect(
                     ws_tx
                         .send(Message::Pong(ping_data))
                         .await
-                        .expect("failed send pong");
+                        .expect("failed to send pong");
                 }
                 Ok(Message::Text(text)) => {
                     if text.contains("@trade") {
                         events_tx
-                            .send(RawEvent::Trade(text.clone()))
+                            .send(RawEvent::RawTrade(text))
                             .expect("failed to send to events channel");
-                    }
-                    if text.contains("@depth") {
+                    } else if text.contains("@depth") {
                         events_tx
-                            .send(RawEvent::OrderbookUpdate(text))
+                            .send(RawEvent::RawDepth(text))
                             .expect("failed to send to events channel");
                     }
                 }
                 _ => {}
             }
-            if Instant::now() - start_instant >= lifetime {
-                break;
-            }
+            if Instant::now() - start_instant >= lifetime { break; }
         }
     });
     Ok(())

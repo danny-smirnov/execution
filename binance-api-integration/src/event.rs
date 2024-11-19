@@ -1,7 +1,13 @@
+use crate::trade::Trade;
 use crate::depth::DepthItem;
 use crate::snapshot::SnapshotItem;
-use crate::trade::Trade;
 use serde::{Deserialize, Serialize};
+
+pub enum RawEvent {
+    RawTrade(String),
+    RawDepth(String),
+    RawSnapshot(String),
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct Event {
@@ -18,11 +24,19 @@ pub struct Event {
     quantity: String,
 }
 
-impl From<(Trade, i64)> for Event {
-    fn from(value: (Trade, i64)) -> Self {
-        let (trade, timestamp) = value;
+fn local_unique_id() -> i64 {
+    let mut ts = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut ts); }
+    ts.tv_sec * 1_000_000_000 + ts.tv_nsec
+}
+
+impl Event {
+    pub fn from_trade(trade: Trade, timestamp: i64) -> Self {
         Event {
-            local_unique_id: Event::local_unique_id(),
+            local_unique_id: local_unique_id(),
             venue_timestamp: trade.event_time(),
             gate_timestamp: timestamp,
             event_type: "trade".to_string(),
@@ -30,18 +44,15 @@ impl From<(Trade, i64)> for Event {
             id1: Some(trade.trade_id()),
             id2: None,
             ask_not_bid: None,
-            buy_not_sell: Some(true),
+            buy_not_sell: Some(trade.market_maker()),
             price: trade.price(),
             quantity: trade.quantity(),
         }
     }
-}
 
-impl From<(DepthItem, i64)> for Event {
-    fn from(value: (DepthItem, i64)) -> Self {
-        let (depth_item, timestamp) = value;
+    pub fn from_depth_item(depth_item: DepthItem, timestamp: i64) -> Self {
         Event {
-            local_unique_id: Event::local_unique_id(),
+            local_unique_id: local_unique_id(),
             venue_timestamp: depth_item.event_time(),
             gate_timestamp: timestamp,
             event_type: "depth".to_string(),
@@ -54,13 +65,10 @@ impl From<(DepthItem, i64)> for Event {
             quantity: depth_item.quantity(),
         }
     }
-}
 
-impl From<(SnapshotItem, &str, i64)> for Event {
-    fn from(value: (SnapshotItem, &str, i64)) -> Self {
-        let (snapshot_item, symbol, timestamp) = value;
+    pub fn from_snapshot_item(snapshot_item: SnapshotItem, symbol: &str, timestamp: i64) -> Self {
         Event {
-            local_unique_id: Event::local_unique_id(),
+            local_unique_id: local_unique_id(),
             venue_timestamp: timestamp,
             gate_timestamp: timestamp,
             event_type: "snapshot".to_string(),
@@ -73,27 +81,12 @@ impl From<(SnapshotItem, &str, i64)> for Event {
             quantity: snapshot_item.quantity(),
         }
     }
-}
 
-impl Event {
-    fn local_unique_id() -> i64 {
-        let mut ts = libc::timespec {
-            tv_sec: 0,
-            tv_nsec: 0,
-        };
-        unsafe {
-            libc::clock_gettime(libc::CLOCK_MONOTONIC_RAW, &mut ts);
-        }
-        ts.tv_sec * 1_000_000_000 + ts.tv_nsec
+    pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
+        Ok(bincode::serialize(self)?)
     }
 
-    pub fn encode_to_binary_form(&self) -> anyhow::Result<Vec<u8>> {
-        let bs = bincode::serialize(self)?;
-        Ok(bs)
-    }
-
-    pub fn decode_from_binary_form(bytes: &[u8]) -> anyhow::Result<Self> {
-        let event: Self = bincode::deserialize(bytes)?;
-        Ok(event)
+    pub fn from_bytes(bytes: &[u8]) -> anyhow::Result<Self> {
+        Ok(bincode::deserialize(bytes)?)
     }
 }
