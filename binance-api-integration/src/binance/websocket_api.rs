@@ -9,7 +9,7 @@ use tokio_tungstenite::{connect_async, tungstenite::Message};
 pub const TIME_AWAIT: Duration = Duration::from_secs(60);
 pub const TIME_RECONNECT: Duration = Duration::from_secs(43200);
 
-pub async fn create(events_tx: mpsc::UnboundedSender<RawEvent>, url: String) {
+pub async fn open_stream(events_tx: mpsc::UnboundedSender<RawEvent>, url: String) {
     tokio::spawn(async move {
         loop {
             connect(events_tx.clone(), url.clone())
