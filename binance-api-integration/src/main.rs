@@ -1,63 +1,90 @@
-mod event;
-mod trade;
-mod depth;
 mod binance;
+mod depth;
+mod event;
 mod snapshot;
+mod trade;
 
+use argh::FromArgs;
+use binance::{rest_api, websocket_api};
 use chrono::Utc;
-use trade::Trade;
 use depth::Depth;
+use event::{Event, RawEvent};
+use humantime::parse_duration;
+use snapshot::Snapshot;
 use tokio::{
+    fs::File,
+    io::{AsyncReadExt, AsyncWriteExt},
     sync::mpsc,
-    io::AsyncWriteExt,
     time::{sleep, Duration, Instant},
 };
-use snapshot::Snapshot;
-use event::{Event, RawEvent};
-use binance::{rest_api, websocket_api};
+use trade::Trade;
 
-const TIMER: Duration = Duration::from_secs(60);
-const FILE_TIMER: Duration = Duration::from_secs(3600);
-const SNAPSHOT_TIMER: Duration = Duration::from_secs(60);
+#[derive(FromArgs)]
+/// Binance api integration
+struct Options {
+    /// how long you need to collect data, f.e 1day 7hours 43min
+    #[argh(option, short = 't')]
+    timer: String,
+    /// path to symbols file
+    #[argh(option, short = 'p')]
+    path: String,
+}
 
 #[tokio::main]
 async fn main() {
+    let options: Options = argh::from_env();
+    let timer = parse_duration(&options.timer)
+        .expect("failed to parse duration")
+        .as_secs();
+    let mut file = File::open(options.path)
+        .await
+        .expect("failed open products file");
+    let mut buffer = String::new();
+    file.read_to_string(&mut buffer)
+        .await
+        .expect("failed file read to string");
+    let symbols: Vec<String> = buffer
+        .split('\n')
+        .map(|s| s.trim().to_lowercase())
+        .collect();
+    let exchange_info = rest_api::ExchangeInfo::new().await;
+    
     let (events_tx, events_rx) = mpsc::unbounded_channel::<RawEvent>();
     acceptor(events_rx).await;
-    let (mut weight, limit, symbols) = rest_api::exchange_info().await;
+    let base_endpoint = String::from("wss://stream.binance.com:9443/stream?streams=");
+    let mut ws_urls: Vec<String> = vec![base_endpoint.clone()];
     let mut counter = 0;
-    let mut url = String::from("wss://stream.binance.com:9443/stream?streams=");
-    for symbol in symbols.iter() {
-        let symbol = symbol.to_lowercase();
-        url.push_str(&format!("{}@trade/{}@depth@100ms/", symbol, symbol));
-        counter += 1;
-        if counter == 300 {
-            url.pop();
-            websocket_api::create(events_tx.clone(), url).await;
-            url = String::from("wss://stream.binance.com:9443/stream?streams=");
-            counter = 0;
+    for s in symbols.iter() {
+        let streams = format!("{s}@trade/{s}@depth@100ms/");
+        if let Some(last) = ws_urls.last_mut() {
+            last.push_str(&streams);
+            counter += 1;
+            if counter == 300 {
+                ws_urls.push(base_endpoint.clone());
+            }
         }
     }
-    if counter > 0 {
+    for mut url in ws_urls {
         url.pop();
-        websocket_api::create(events_tx.clone(), url).await;
+        websocket_api::open_stream(events_tx.clone(), url).await;
     }
     tokio::spawn(async move {
+        let mut weight = exchange_info.weight;
         loop {
-            for symbol in symbols.iter() {
-                let (s_weight, snapshot) = rest_api::snapshot(symbol.to_string()).await;
+            for s in symbols.iter() {
+                let snapshot_info = rest_api::SnapshotInfo::new(s).await;
                 events_tx
-                    .send(RawEvent::RawSnapshot(snapshot))
-                    .expect("failed send to channel");
-                weight += s_weight;
-                if weight >= limit - s_weight {
-                    sleep(SNAPSHOT_TIMER).await;
+                    .send(snapshot_info.raw_snapshot)
+                    .expect("failed to send to channel");
+                weight += snapshot_info.weight;
+                if weight >= exchange_info.limit - snapshot_info.weight {
+                    sleep(Duration::from_secs(60)).await;
                     weight = 0;
                 }
             }
         }
     });
-    sleep(TIMER).await;
+    sleep(Duration::from_secs(timer)).await;
 }
 
 async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
@@ -66,7 +93,7 @@ async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
         let start_idx = msg.find(key)? + key.len() - 1;
         Some(&msg[start_idx..msg.len() - 1])
     }
-    
+    let file_timer = Duration::from_secs(3600);
     tokio::task::spawn(async move {
         loop {
             let mut file = tokio::fs::OpenOptions::new()
@@ -111,7 +138,7 @@ async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
                         }
                     }
                 }
-                if Instant::now() - start_instant >= FILE_TIMER { break; }
+                if Instant::now() - start_instant >= file_timer { break; }
             }
         }
     });
