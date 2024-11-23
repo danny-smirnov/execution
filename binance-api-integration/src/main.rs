@@ -6,7 +6,6 @@ mod trade;
 
 use argh::FromArgs;
 use binance::{rest_api, websocket_api};
-use chrono::Utc;
 use depth::Depth;
 use event::{Event, RawEvent};
 use humantime::parse_duration;
@@ -48,7 +47,6 @@ async fn main() {
         .map(|s| s.trim().to_lowercase())
         .collect();
     let exchange_info = rest_api::ExchangeInfo::new().await;
-    
     let (events_tx, events_rx) = mpsc::unbounded_channel::<RawEvent>();
     acceptor(events_rx).await;
     let base_endpoint = String::from("wss://stream.binance.com:9443/stream?streams=");
@@ -71,6 +69,7 @@ async fn main() {
     tokio::spawn(async move {
         let mut weight = exchange_info.weight;
         loop {
+            let mut time_await: i64 = 3600;
             for s in symbols.iter() {
                 let snapshot_info = rest_api::SnapshotInfo::new(s).await;
                 events_tx
@@ -79,8 +78,12 @@ async fn main() {
                 weight += snapshot_info.weight;
                 if weight >= exchange_info.limit - snapshot_info.weight {
                     sleep(Duration::from_secs(60)).await;
+                    time_await -= 60;
                     weight = 0;
                 }
+            }
+            if time_await > 0 {
+                sleep(Duration::from_secs(time_await as u64)).await;
             }
         }
     });
@@ -94,18 +97,24 @@ async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
         Some(&msg[start_idx..msg.len() - 1])
     }
     let file_timer = Duration::from_secs(3600);
+    tokio::fs::create_dir_all("marketdata")
+        .await
+        .expect("failed create a directory");
     tokio::task::spawn(async move {
         loop {
             let mut file = tokio::fs::OpenOptions::new()
                 .write(true)
                 .append(true)
                 .create(true)
-                .open(format!("{}.bin", Utc::now().format("%d-%m-%Y %H-%M-%S")))
+                .open(format!(
+                    "marketdata/{}.bin",
+                    chrono::Utc::now().format("%d-%m-%Y %H-%M-%S")
+                ))
                 .await
                 .expect("acceptor: failed to open a file");
             let start_instant = Instant::now();
             while let Some(event) = events_rx.recv().await {
-                let timestamp = Utc::now().timestamp_millis();
+                let timestamp = chrono::Utc::now().timestamp_millis();
                 match event {
                     RawEvent::RawTrade(raw_trade) => {
                         let data = extract_data(&raw_trade).expect("failed extract \"raw trade\"");

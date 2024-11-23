@@ -3,6 +3,9 @@ name = "binance-api-integration"
 version = "0.1.0"
 edition = "2021"
 
+[lints.rust]
+non_snake_case = { level = "allow" }
+
 [dependencies]
 tokio-tungstenite = { version = "0.24.0", features = ["native-tls"] }
 tokio = { version = "1.40.0", features = ["full"] }
