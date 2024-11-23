@@ -103,12 +103,13 @@ impl Simulator {
     pub fn insert(&mut self, market_data: MarketData) {
         match market_data {
             MarketData::OrderbookSnapshot(obss) => {
-                for pl in obss.asks {
-                    self.orderbook.update_ask(pl);
-                }
-                for pl in obss.bids {
-                    self.orderbook.update_bid(pl);
-                }
+                // for pl in obss.asks {
+                //     self.orderbook.update_ask(pl);
+                // }
+                // for pl in obss.bids {
+                //     self.orderbook.update_bid(pl);
+                // }
+                // pohui
             }
             MarketData::OrderbookUpdate(obu) => {
                 for pl in obu.asks {

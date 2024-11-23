@@ -1,6 +1,6 @@
 [workspace]
 members = [
     "binance-api-integration",
-    "simulator",
+    "marketdata-player",
 ]
 resolver = "2"
