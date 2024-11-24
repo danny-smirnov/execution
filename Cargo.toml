@@ -1,3 +1,7 @@
 [workspace]
-members = ["binance-api-integration", "marketdata-player"]
+members = [
+    "binance-api-integration",
+    "clickhouse-integration",
+    "marketdata-player",
+]
 resolver = "2"
