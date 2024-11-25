@@ -21,21 +21,24 @@ use trade::Trade;
 #[derive(FromArgs)]
 /// Binance api integration
 struct Options {
-    /// how long you need to collect data, f.e 1day 7hours 43min
-    #[argh(option, short = 't')]
-    timer: String,
-    /// path to symbols file
-    #[argh(option, short = 'p')]
-    path: String,
+    /// duration for data collection, e.g., "1day 7hours 43min"
+    #[argh(option)]
+    runtime: String,
+    /// path to the file containing symbols
+    #[argh(option)]
+    symbols_path: String,
+    /// path to save the market data
+    #[argh(option)]
+    output_path: Option<String>,
 }
 
 #[tokio::main]
 async fn main() {
     let options: Options = argh::from_env();
-    let timer = parse_duration(&options.timer)
+    let timer = parse_duration(&options.runtime)
         .expect("failed to parse duration")
         .as_secs();
-    let mut file = File::open(options.path)
+    let mut file = File::open(options.symbols_path)
         .await
         .expect("failed open products file");
     let mut buffer = String::new();
@@ -48,7 +51,7 @@ async fn main() {
         .collect();
     let exchange_info = rest_api::ExchangeInfo::new().await;
     let (events_tx, events_rx) = mpsc::unbounded_channel::<RawEvent>();
-    acceptor(events_rx).await;
+    acceptor(events_rx, options.output_path).await;
     let base_endpoint = String::from("wss://stream.binance.com:9443/stream?streams=");
     let mut ws_urls: Vec<String> = vec![base_endpoint.clone()];
     let mut counter = 0;
@@ -90,16 +93,23 @@ async fn main() {
     sleep(Duration::from_secs(timer)).await;
 }
 
-async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
+async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>, output_path: Option<String>) {
     fn extract_data(msg: &str) -> Option<&str> {
         let key = "\"data\":{";
         let start_idx = msg.find(key)? + key.len() - 1;
         Some(&msg[start_idx..msg.len() - 1])
     }
-    let file_timer = Duration::from_secs(3600);
-    tokio::fs::create_dir_all("marketdata")
+    let path = match output_path {
+        Some(mut output_path) => {
+            output_path.push_str("/marketdata");
+            output_path
+        }
+        None => "marketdata".to_string(),
+    };
+    tokio::fs::create_dir_all(path.clone())
         .await
         .expect("failed create a directory");
+    let file_timer = Duration::from_secs(3600);
     tokio::task::spawn(async move {
         loop {
             let mut file = tokio::fs::OpenOptions::new()
@@ -107,7 +117,8 @@ async fn acceptor(mut events_rx: mpsc::UnboundedReceiver<RawEvent>) {
                 .append(true)
                 .create(true)
                 .open(format!(
-                    "marketdata/{}.bin",
+                    "{}/{}.bin",
+                    path,
                     chrono::Utc::now().format("%d-%m-%Y %H-%M-%S")
                 ))
                 .await
