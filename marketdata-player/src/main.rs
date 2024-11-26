@@ -20,7 +20,7 @@ pub struct Event {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let client = Client::default()
-        .with_url("http://localhost:8123")
+        .with_url("http://127.0.1.1:8123")
         .with_user("default")
         .with_database("default")
         .with_compression(clickhouse::Compression::None);
