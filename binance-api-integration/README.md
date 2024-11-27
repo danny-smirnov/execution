@@ -5,14 +5,13 @@
 ## Quick Start
 -  **Сборка и запуск:**
    ```bash
-   cargo build -p binance-api-integration
+   cargo build -p binance-api-integration --release
    target/release/binance-api-integration --runtime 1min --symbols-path symbols.txt
    ```
 - **Получение справки:**
    ```bash
    binance-api-integration --help
    ```
-
 
 ## Описание
 
@@ -49,7 +48,7 @@ pub struct Event {
 Пример:
 ```
 marketdata/
-├── 2024-11-25 10-00-00.bin
-├── 2024-11-25 11-00-00.bin
+├── 2024-10-25 10-00-00.bin
+├── 2024-10-25 11-00-00.bin
 └── ...
 ```
