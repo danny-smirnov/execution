@@ -1,8 +1,8 @@
-use std::fs::{self, File};
-use std::io::BufReader;
 use clickhouse::{error::Result, sql::Identifier, Client, Compression, Row};
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
+use std::fs::{read_dir, File};
+use std::io::BufReader;
 
 #[derive(Debug, Serialize, Deserialize, Row)]
 struct Event {
@@ -27,14 +27,13 @@ async fn main() -> Result<()> {
         .with_user("default")
         .with_database("default")
         .with_compression(Compression::None);
-
     client
         .query(
             r#"
             CREATE TABLE IF NOT EXISTS ? (
                 local_unique_id Int64,
                 venue_timestamp DateTime64(3, 'UTC'),
-                gate_timestamp  DateTime64(9, 'UTC'),
+                gate_timestamp  DateTime64(3, 'UTC'),
                 event_type      String,
                 product         String,
                 id1             Nullable(UInt64),
@@ -54,13 +53,14 @@ async fn main() -> Result<()> {
         .await?;
 
     let dir_path = "/srv/storage/marketdata/";
-    let files = fs::read_dir(dir_path).expect("Unable to read directory");
+    let files = read_dir(dir_path).expect("Unable to read directory");
 
     for entry in files {
         let entry = entry.expect("Unable to access file entry");
         let file_path = entry.path();
 
-        if file_path.is_file() && file_path.extension().and_then(|ext| ext.to_str()) == Some("bin") {
+        if file_path.is_file() && file_path.extension().and_then(|ext| ext.to_str()) == Some("bin")
+        {
             println!("Processing file: {:?}", file_path);
 
             let file = File::open(&file_path).expect("Unable to open file");
@@ -78,7 +78,6 @@ async fn main() -> Result<()> {
                 .unwrap()
                 .progress_chars("##-"),
             );
-
             loop {
                 match bincode::deserialize_from::<_, Event>(&mut reader) {
                     Ok(event) => {
@@ -102,7 +101,6 @@ async fn main() -> Result<()> {
             insert.end().await?;
         }
     }
-
-    println!("All files have been processed.");
+    println!("All files have been processed");
     Ok(())
 }
