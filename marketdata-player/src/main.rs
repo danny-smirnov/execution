@@ -5,7 +5,7 @@ use clickhouse::{Client, Row};
 use orderbook::Orderbook;
 use serde::Deserialize;
 
-pub type Depths = Vec<Event>;
+pub type Diffs = Vec<Event>;
 pub type Snapshot = Vec<Event>;
 
 #[derive(Row, Deserialize, Debug)]
@@ -30,45 +30,37 @@ async fn main() -> Result<()> {
         .with_user("default")
         .with_database("default")
         .with_compression(clickhouse::Compression::None);
-    let product = "\'ETHUSDT\'";
-    let table = "marketDataProcessedFull";
-    let timestamp = "\'2024-11-26 10:00:00.000\'";
-    let mut orderbook = Orderbook::default();
-    let snapshot_query = format!("WITH 
-    (
-         SELECT 
-             *, 
-             CAST(toDateTime64({timestamp}, 3, 'UTC'), 'Float64') - CAST(venue_timestamp, 'Float64') AS t_diff
-         FROM {table}
-         WHERE 
-             product = {product} 
+    let product = "ETHUSDT";
+    let tablename = "marketDataProcessedFull";
+    let timestamp = "2024-11-26 10:00:00.000";
+    let snapshot_query = format!(
+    "WITH (
+        SELECT *, CAST(toDateTime64('{timestamp}', 3, 'UTC'), 'Float64') - CAST(venue_timestamp, 'Float64') AS t_diff
+         FROM {tablename} WHERE 
+             product = '{product}' 
              AND event_type = 'snapshot'
-             AND venue_timestamp < toDateTime64({timestamp}, 3, 'UTC')
+             AND venue_timestamp < toDateTime64('{timestamp}', 3, 'UTC')
          ORDER BY 
              t_diff ASC
          LIMIT 1
      ) AS needed_snapshot
- SELECT count(*) 
- FROM 
-     marketDataProcessedFull
- WHERE 
-     id1 = needed_snapshot.id1");
-    let depths_query = format!("WITH (
-        SELECT
-        *,
-        CAST(toDateTime64({timestamp}, 3, 'UTC'), 'Float64') - CAST(venue_timestamp, 'Float64') AS t_diff
-        FROM marketDataProcessedFull
-        WHERE (product = {product}) AND (event_type = 'snapshot') AND (venue_timestamp < toDateTime64({timestamp}, 3, 'UTC'))
+    SELECT * FROM {tablename} WHERE id1 = needed_snapshot.id1");
+    let depths_query = format!(
+        "WITH (
+        SELECT *,
+        CAST(toDateTime64('{timestamp}', 3, 'UTC'), 'Float64') - CAST(venue_timestamp, 'Float64') AS t_diff
+        FROM {tablename}
+        WHERE (product = '{product}') AND (event_type = 'snapshot') AND (venue_timestamp < toDateTime64('{timestamp}', 3, 'UTC'))
         ORDER BY t_diff ASC
         LIMIT 1
         ) AS needed_snapshot
         SELECT *
-        FROM marketDataProcessedFull
-        WHERE (venue_timestamp > needed_snapshot.venue_timestamp) AND (venue_timestamp <= toDateTime64({timestamp}, 3, 'UTC')) AND (event_type = 'depth')");
+        FROM {tablename}
+        WHERE (venue_timestamp > needed_snapshot.venue_timestamp) AND (venue_timestamp <= toDateTime64('{timestamp}', 3, 'UTC')) AND (event_type = 'depth')");
     let snapshot: Snapshot = client.query(&snapshot_query).fetch_all::<Event>().await?;
-    let depths: Depths = client.query(&depths_query).fetch_all::<Event>().await?;
-    orderbook.new(snapshot, depths)?;
+    let diffs: Diffs = client.query(&depths_query).fetch_all::<Event>().await?;
+    let mut orderbook = Orderbook::from_snapshot(snapshot)?;
+    orderbook.update(diffs)?;
     println!("{:?}", orderbook);
-
     Ok(())
 }
