@@ -65,14 +65,14 @@ impl Orderbook {
     pub fn pbest(&mut self) -> f64 {
         let (&price, _) = self.asks.iter().next().unwrap();
         f64::from_str(&price.to_string()).unwrap()
-    } 
+    }
     pub fn best_total_price(&self, mut amount: Decimal) -> Option<Decimal> {
         let mut total_price = Decimal::ZERO;
         while amount > 0 {
             let (&price, &quantity) = self.asks.iter().next()?;
-            total_price += quantity.max(amount) * price;
+            total_price += quantity.min(amount) * price;
             amount -= quantity;
-        } 
-        Some(total_price) 
+        }
+        Some(total_price)
     }
 }
