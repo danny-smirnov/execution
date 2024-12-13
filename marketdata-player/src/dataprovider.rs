@@ -46,4 +46,5 @@ impl DataProvider {
         }
         None
     }
+    pub fn product(&self) -> String { self.product.clone() }
 }
