@@ -7,6 +7,7 @@ use clickhouse::Row;
 use fpdec::Decimal;
 use marketdataplayer::MarketdataPlayer;
 use serde::Deserialize;
+use tokio::{fs::OpenOptions, io::{AsyncBufReadExt, BufReader}};
 use std::str::FromStr;
 
 #[derive(Row, Deserialize, Debug, Clone)]
@@ -26,13 +27,17 @@ pub struct Event {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let product = "BANANAUSDT".to_string(); //DOGEUSDT, STRAXUSDT, BNBUSDT
-    let tablename = "marketDataSorted".to_string();
-    let start_timestamp = "2024-11-28 12:55:17.984".to_string();
-    let quantity_execution = Decimal::from_str("1.01")?;
-    println!("Buying {} in amount of {}", product, quantity_execution);
-    let mut marketdata_player =
-        MarketdataPlayer::new(product, tablename, start_timestamp, quantity_execution).await;
-    marketdata_player.play().await?;
+    let file = OpenOptions::new().read(true).open("symbols.txt").await?;
+    let mut lines = BufReader::new(file).lines();
+    while let Some(product) = lines.next_line().await? {
+        println!("{}", product);
+        let tablename = "marketDataSorted".to_string();
+        let start_timestamp = "2024-11-26 05:50:00".to_string();
+        let quantity_execution = Decimal::from_str("1.01")?;
+        println!("Buying {} in amount of {}", product, quantity_execution);
+        let mut marketdata_player =
+            MarketdataPlayer::new(product, tablename, start_timestamp, quantity_execution).await;
+        marketdata_player.play().await?;
+    } 
     Ok(())
 }

@@ -45,11 +45,10 @@ impl MarketdataPlayer {
         }
         let mut file = OpenOptions::new()
             .write(true)
-            .append(true)
             .create(true)
-            .open(format!("{}.txt", self.dataprovider.product()))
+            .open(format!("output/{}.txt", self.dataprovider.product()))
             .await?;
-        file.write_all(b"Best player price | Best model price lower | Best model price upper | Real price | Delta execution | Num of obs").await?;
+        file.write_all(b"Best player price | Best model price lower | Best model price upper | Real price | Delta execution | Num of obs\n").await?;
         let mut last_event: Option<Event> = None;
         let mut best_player_total_price = Decimal::ZERO;
         let mut best_model_price_lower = 0.0;
@@ -101,7 +100,7 @@ impl MarketdataPlayer {
                                 .unwrap();
                             if !best_model_price_upper.is_nan() && prev_pbest != real_total_price {
                                 let res = format!(
-                                    "{} {} {} {} {} {}",
+                                    "{} {} {} {} {} {}\n",
                                     best_player_total_price,
                                     best_model_price_lower,
                                     best_model_price_upper,
@@ -136,7 +135,6 @@ pub struct Model {
 }
 
 impl Model {
-    /// Создание нового экземпляра модели с инициализацией pbest
     pub fn reinit(pbest: f64) -> Self {
         Self {
             last_pbest: pbest,
@@ -144,8 +142,6 @@ impl Model {
             price_shift: Vec::new(),
         }
     }
-
-    /// Обновление модели: добавление нового времени и изменения цены
     pub fn update(&mut self, delta_t: i64, price: String) -> Result<()> {
         self.time_interval.push((delta_t as f64).ln());
         let price = f64::from_str(&price)?;
@@ -154,22 +150,17 @@ impl Model {
         self.price_shift.push(price_shift);
         Ok(())
     }
-
-    /// Расчет доверительного интервала
     pub fn get_best_price(&self, p: f64) -> (f64, f64, f64) {
         let num_of_obs = self.time_interval.len() as f64;
         if num_of_obs < 3.0 {
-            // Требуется минимум три наблюдения для статистики Хотеллинга
             return (0.0, 0.0, num_of_obs);
         }
 
         let time_mean: f64 = self.time_interval.iter().sum::<f64>() / num_of_obs;
         let price_mean: f64 = self.price_shift.iter().sum::<f64>() / num_of_obs;
-
         let mut variance_time = 0.0;
         let mut variance_price = 0.0;
         let mut covariance_time_price = 0.0;
-
         for i in 0..self.time_interval.len() {
             let time_diff = self.time_interval[i] - time_mean;
             let price_diff = self.price_shift[i] - price_mean;
@@ -191,7 +182,6 @@ impl Model {
         let upper = price_mean + hotelling_stat / covariance_coef;
         let lower_bound = lower.powi(2) * lower.signum();
         let upper_bound = upper.powi(2) * upper.signum();
-
         (lower_bound, upper_bound, num_of_obs)
     }
 }

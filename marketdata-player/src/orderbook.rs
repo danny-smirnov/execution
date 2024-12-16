@@ -45,18 +45,20 @@ impl Orderbook {
         let price: Price = Decimal::from_str(&trade.price)?;
         let quantity: Quantity = Decimal::from_str(&trade.quantity)?;
         if let Some((&key, &value)) = self.asks.iter().next() {
-            let remaining_quantity = value - quantity;
             if price >= key {
+                let remaining_quantity = value - quantity;
                 if remaining_quantity.eq_zero() {
-                    self.asks.remove(&key);
+                    self.asks.remove(&price);
                 } else {
-                    self.asks.insert(key, remaining_quantity);
+                    self.asks.insert(price, remaining_quantity);
                 }
             } else {
+                let (_, &value) = self.bids.iter().next().unwrap();
+                let remaining_quantity = value - quantity;
                 if remaining_quantity.eq_zero() {
-                    self.bids.remove(&Reverse(key));
+                    self.bids.remove(&Reverse(price));
                 } else {
-                    self.bids.insert(Reverse(key), remaining_quantity);
+                    self.bids.insert(Reverse(price), remaining_quantity);
                 }
             }
         }
@@ -68,8 +70,9 @@ impl Orderbook {
     }
     pub fn best_total_price(&self, mut amount: Decimal) -> Option<Decimal> {
         let mut total_price = Decimal::ZERO;
+        let mut iter = self.asks.iter();
         while amount > 0 {
-            let (&price, &quantity) = self.asks.iter().next()?;
+            let (&price, &quantity) = iter.next()?;
             total_price += quantity.min(amount) * price;
             amount -= quantity;
         }

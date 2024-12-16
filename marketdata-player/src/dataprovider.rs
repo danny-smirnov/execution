@@ -32,7 +32,6 @@ impl DataProvider {
         self.current_timestamp = next_timestamp;
         let events = self.client.query(&query).fetch_all::<Event>().await.ok();
         if let Some(events) = events {
-            println!("{}", events.len());
             self.buffer = events.into_iter();
             return Some(());
         }
