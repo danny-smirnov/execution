@@ -1,5 +1,5 @@
 use chrono::{Duration, NaiveDateTime};
-use clickhouse::Client;
+use clickhouse::{query, Client};
 use std::vec::IntoIter;
 
 use crate::Event;
@@ -27,11 +27,12 @@ impl DataProvider {
     }
     async fn load_marketdata(&mut self) -> Option<()> {
         let next_timestamp = self.current_timestamp + Duration::minutes(5);
-        self.current_timestamp = next_timestamp;
         let query = format!("SELECT local_unique_id, venue_timestamp, gate_timestamp, event_type, product, id1, id2, ask_not_bid, buy_not_sell, price, quantity FROM {} WHERE product = '{}' AND gate_timestamp >= toDateTime64('{}', 3, 'UTC') AND gate_timestamp < toDateTime64('{}', 3, 'UTC')",
         self.tablename, self.product, self.current_timestamp, next_timestamp);
+        self.current_timestamp = next_timestamp;
         let events = self.client.query(&query).fetch_all::<Event>().await.ok();
         if let Some(events) = events {
+            println!("{}", events.len());
             self.buffer = events.into_iter();
             return Some(());
         }
@@ -46,5 +47,7 @@ impl DataProvider {
         }
         None
     }
-    pub fn product(&self) -> String { self.product.clone() }
+    pub fn product(&self) -> String {
+        self.product.clone()
+    }
 }

@@ -149,7 +149,8 @@ impl Model {
     pub fn update(&mut self, delta_t: i64, price: String) -> Result<()> {
         self.time_interval.push((delta_t as f64).ln());
         let price = f64::from_str(&price)?;
-        let price_shift = (self.last_pbest - price).abs().sqrt();
+        let price_shift =
+            (self.last_pbest - price).abs().sqrt() * (price - self.last_pbest).signum();
         self.price_shift.push(price_shift);
         Ok(())
     }
@@ -186,9 +187,10 @@ impl Model {
         let f_dist = FisherSnedecor::new(2.0, n).unwrap();
         let hotelling_stat =
             (2.0 * (num_of_obs - 1.0) / (num_of_obs * n) * f_dist.inverse_cdf(p)).sqrt();
-
-        let lower_bound = (price_mean - hotelling_stat / covariance_coef).powi(2);
-        let upper_bound = (price_mean + hotelling_stat / covariance_coef).powi(2);
+        let lower = price_mean - hotelling_stat / covariance_coef;
+        let upper = price_mean + hotelling_stat / covariance_coef;
+        let lower_bound = lower.powi(2) * lower.signum();
+        let upper_bound = upper.powi(2) * upper.signum();
 
         (lower_bound, upper_bound, num_of_obs)
     }
